@@ -9,10 +9,13 @@ from models.breeze import BreezeForConditionalGeneration
 from models.breeze_config import BreezeConfig
 
 
-def configure_eager_attention(config):
-    """Propagate eager attention through object and dictionary sub-configs."""
+def configure_attention(config, implementation: str):
+    """Propagate one supported attention backend through every sub-config."""
 
-    config._attn_implementation = "eager"
+    if implementation not in {"eager", "sdpa"}:
+        raise ValueError(f"unsupported training attention backend: {implementation}")
+
+    config._attn_implementation = implementation
     config.use_cache = False
     for nested_name in (
         "backbone_config",
@@ -23,16 +26,22 @@ def configure_eager_attention(config):
         if nested is None:
             continue
         if isinstance(nested, dict):
-            nested["_attn_implementation"] = "eager"
-            nested["preferred_attn_implementation"] = "eager"
+            nested["_attn_implementation"] = implementation
+            nested["preferred_attn_implementation"] = implementation
             nested["use_cache"] = False
             continue
-        nested._attn_implementation = "eager"
+        nested._attn_implementation = implementation
         if hasattr(nested, "preferred_attn_implementation"):
-            nested.preferred_attn_implementation = "eager"
+            nested.preferred_attn_implementation = implementation
         if hasattr(nested, "use_cache"):
             nested.use_cache = False
     return config
+
+
+def configure_eager_attention(config):
+    """Backward-compatible eager-attention configuration helper."""
+
+    return configure_attention(config, "eager")
 
 
 def load_eager_config(model_root: str | Path) -> BreezeConfig:
@@ -47,13 +56,15 @@ def load_training_model(
     model_root: str | Path,
     *,
     device: str,
+    attention_implementation: str = "eager",
 ) -> BreezeForConditionalGeneration:
-    config = load_eager_config(model_root)
+    config = BreezeConfig.from_pretrained(model_root)
+    configure_attention(config, attention_implementation)
     model = BreezeForConditionalGeneration.from_pretrained(
         model_root,
         config=config,
         dtype=torch.bfloat16,
-        attn_implementation="eager",
+        attn_implementation=attention_implementation,
         low_cpu_mem_usage=True,
     )
     model.to(device)

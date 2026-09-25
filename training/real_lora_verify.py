@@ -79,7 +79,13 @@ def main() -> int:
         raise ValueError("no validation examples selected")
 
     torch.cuda.set_device(args.device)
-    model = load_training_model(args.model_root, device=args.device)
+    model = load_training_model(
+        args.model_root,
+        device=args.device,
+        attention_implementation=configuration.get(
+            "attention_implementation", "eager"
+        ),
+    )
     families = inject_lora(
         model,
         variant=configuration["variant"],

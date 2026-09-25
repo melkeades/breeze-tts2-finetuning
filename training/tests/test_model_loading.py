@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from training.model_loading import configure_eager_attention
+from training.model_loading import configure_attention, configure_eager_attention
 
 
 def test_configure_eager_attention_handles_mixed_nested_config_shapes():
@@ -25,3 +25,22 @@ def test_configure_eager_attention_handles_mixed_nested_config_shapes():
     assert depth_decoder.use_cache is False
     assert text_encoder._attn_implementation == "eager"
     assert text_encoder.preferred_attn_implementation == "eager"
+
+
+def test_configure_sdpa_attention_handles_mixed_nested_config_shapes():
+    backbone = {"preferred_attn_implementation": "eager", "use_cache": True}
+    depth_decoder = SimpleNamespace(use_cache=True)
+    text_encoder = SimpleNamespace(preferred_attn_implementation="eager")
+    config = SimpleNamespace(
+        use_cache=True,
+        backbone_config=backbone,
+        depth_decoder_config=depth_decoder,
+        text_encoder_config=text_encoder,
+    )
+    configure_attention(config, "sdpa")
+    assert config._attn_implementation == "sdpa"
+    assert backbone["_attn_implementation"] == "sdpa"
+    assert backbone["preferred_attn_implementation"] == "sdpa"
+    assert depth_decoder._attn_implementation == "sdpa"
+    assert text_encoder._attn_implementation == "sdpa"
+    assert text_encoder.preferred_attn_implementation == "sdpa"

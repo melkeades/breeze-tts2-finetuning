@@ -53,6 +53,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--validation-examples", type=int, default=64)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--max-gradient-norm", type=float, default=1.0)
+    parser.add_argument(
+        "--attention-implementation",
+        choices=("eager", "sdpa"),
+        default="eager",
+    )
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     parser.add_argument("--stop-after-step", type=int)
     return parser.parse_args()
 
@@ -210,6 +220,8 @@ def run_configuration(
         "validation_examples": args.validation_examples,
         "seed": args.seed,
         "max_gradient_norm": args.max_gradient_norm,
+        "attention_implementation": args.attention_implementation,
+        "gradient_checkpointing": args.gradient_checkpointing,
         "cache_receipt_sha256": sha256_file(args.cache_root / "cache-receipt.json"),
         "train_manifest_sha256": cache_receipt["source"]["train_manifest_sha256"],
         "validation_manifest_sha256": cache_receipt["source"][
@@ -263,8 +275,13 @@ def main() -> int:
     torch.cuda.set_device(args.device)
     torch.cuda.reset_peak_memory_stats(args.device)
 
-    model = load_training_model(args.model_root, device=args.device)
-    model.gradient_checkpointing_enable()
+    model = load_training_model(
+        args.model_root,
+        device=args.device,
+        attention_implementation=args.attention_implementation,
+    )
+    if args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
     families = inject_lora(
         model,
         variant=VARIANT,
