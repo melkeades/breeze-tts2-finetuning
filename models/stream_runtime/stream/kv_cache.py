@@ -45,7 +45,6 @@ class StaticShiftKVCache(nn.Module):
         return int(self.window)
 
     def get_mask_sizes(self, cache_position: torch.Tensor, layer_idx: int):
-        q_len = int(cache_position.numel()) if cache_position is not None else 1
         if cache_position is None or cache_position.numel() == 0:
             return self.window, 0
         cur_pos = int(cache_position.reshape(-1)[-1].item())

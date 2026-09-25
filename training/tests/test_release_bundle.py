@@ -48,6 +48,10 @@ def test_build_lora_copies_only_release_roles(tmp_path) -> None:
             card=card,
             model_license=license_path,
             provenance=provenance,
+            rank=4,
+            alpha=12.0,
+            seed=7,
+            selected_checkpoint_step=750,
         )
     )
     assert {path.name for path in output.iterdir()} == {
@@ -60,6 +64,15 @@ def test_build_lora_copies_only_release_roles(tmp_path) -> None:
         "adapter.safetensors",
         "adapter_config.json",
     }
+    adapter_config = json.loads((output / "adapter_config.json").read_text())
+    assert adapter_config["lora"] == {
+        "variant": "backbone_depth_projection",
+        "rank": 4,
+        "alpha": 12.0,
+        "seed": 7,
+    }
+    release_provenance = json.loads((output / "PROVENANCE.json").read_text())
+    assert release_provenance["artifact"]["selected_checkpoint_step"] == 750
 
 
 def test_build_full_sft_rejects_training_role(tmp_path) -> None:

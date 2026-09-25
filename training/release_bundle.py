@@ -154,6 +154,10 @@ def build_lora(args: argparse.Namespace) -> None:
         raise ValueError("source adapter checksum does not match the selected checkpoint")
     copy_file(args.adapter, partial / "adapter.safetensors")
     base_files = base_file_hashes(args.base_model_root)
+    rank = getattr(args, "rank", 8)
+    alpha = getattr(args, "alpha", 16.0)
+    seed = getattr(args, "seed", 42)
+    selected_checkpoint_step = getattr(args, "selected_checkpoint_step", 500)
     manifest = {
         "schema_version": 1,
         "artifact_type": "breeze_lora_adapter",
@@ -168,16 +172,16 @@ def build_lora(args: argparse.Namespace) -> None:
         },
         "lora": {
             "variant": "backbone_depth_projection",
-            "rank": 8,
-            "alpha": 16.0,
-            "seed": 42,
+            "rank": rank,
+            "alpha": alpha,
+            "seed": seed,
         },
     }
     write_json(partial / "adapter_config.json", manifest)
     provenance = json.loads(args.provenance.read_text())
     provenance["artifact"] = {
         "kind": "lora_adapter",
-        "selected_checkpoint_step": 500,
+        "selected_checkpoint_step": selected_checkpoint_step,
         "sha256": observed_adapter_hash,
     }
     provenance["base_model"] = {
@@ -262,6 +266,10 @@ def parse_args() -> argparse.Namespace:
     lora.add_argument("--adapter", type=Path, required=True)
     lora.add_argument("--adapter-sha256", required=True)
     lora.add_argument("--base-model-root", type=Path, required=True)
+    lora.add_argument("--rank", type=int, default=8)
+    lora.add_argument("--alpha", type=float, default=16.0)
+    lora.add_argument("--seed", type=int, default=42)
+    lora.add_argument("--selected-checkpoint-step", type=int, default=500)
     lora.set_defaults(run=build_lora)
     full = subparsers.add_parser("full-sft")
     common(full)

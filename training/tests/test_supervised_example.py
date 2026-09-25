@@ -3,12 +3,13 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from training.real_data import ManifestRow, select_rows
+from training.real_data import ManifestRow, read_manifest, select_rows, stable_row_key
 from training.real_lora import example_index, lr_multiplier
 from training.supervised_example import (
     IGNORE_INDEX,
     make_supervised_labels,
     normalize_audio_tokens,
+    render_supervised_prompt,
 )
 
 CONFIG = SimpleNamespace(audio_token_id=20, audio_eos_token_id=21)
@@ -56,6 +57,28 @@ def test_manifest_selection_is_seeded_and_stable(tmp_path) -> None:
     second = select_rows(list(reversed(rows)), limit=4, seed=42)
     assert first == second
     assert select_rows(rows, limit=4, seed=43) != first
+
+
+def test_manifest_instruction_is_optional_and_changes_row_identity(tmp_path) -> None:
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"wave-placeholder")
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '{"audio":"%s","text":"Hello."}\n'
+        '{"audio":"%s","text":"Hello.","instruction":"Speak softly."}\n'
+        % (audio.as_posix(), audio.as_posix())
+    )
+    rows = read_manifest(manifest)
+    assert rows[0].instruction is None
+    assert rows[1].instruction == "Speak softly."
+    assert stable_row_key(rows[0], 42) != stable_row_key(rows[1], 42)
+
+
+def test_instruction_uses_native_breeze_prompt_layout() -> None:
+    assert render_supervised_prompt(
+        "Hello.", instruction="Speak softly.", speaker="S0"
+    ) == "[S0]<ins_bos>Speak softly.<ins_eos>Hello."
+    assert render_supervised_prompt("Hello.", speaker="S0") == "[S0]Hello."
 
 
 def test_example_schedule_is_resume_derivable() -> None:

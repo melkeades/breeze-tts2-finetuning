@@ -21,6 +21,7 @@ class ManifestRow:
     line_number: int
     audio: Path
     text: str
+    instruction: str | None = None
 
 
 def sha256_file(path: Path) -> str:
@@ -32,7 +33,7 @@ def sha256_file(path: Path) -> str:
 
 
 def stable_row_key(row: ManifestRow, seed: int) -> str:
-    payload = f"{seed}\0{row.audio}\0{row.text}".encode()
+    payload = f"{seed}\0{row.audio}\0{row.text}\0{row.instruction or ''}".encode()
     return hashlib.sha256(payload).hexdigest()
 
 
@@ -49,7 +50,19 @@ def read_manifest(path: Path) -> list[ManifestRow]:
                 raise FileNotFoundError(
                     f"missing audio at {path}:{line_number}: {audio}"
                 )
-            rows.append(ManifestRow(line_number, audio, text))
+            instruction_value = value.get("instruction")
+            if instruction_value is not None and not isinstance(
+                instruction_value, str
+            ):
+                raise TypeError(
+                    f"instruction must be a string at {path}:{line_number}"
+                )
+            instruction = (
+                instruction_value.strip() if instruction_value is not None else None
+            )
+            if instruction_value is not None and not instruction:
+                raise ValueError(f"empty instruction at {path}:{line_number}")
+            rows.append(ManifestRow(line_number, audio, text, instruction))
     if not rows:
         raise ValueError(f"manifest is empty: {path}")
     return rows
@@ -99,6 +112,7 @@ def build_split(
             config,
             audio_path=row.audio,
             transcript=row.text,
+            instruction=row.instruction,
             speaker=speaker,
         )
         artifact = split_root / f"{index:06d}.pt"
@@ -111,6 +125,11 @@ def build_split(
                 "audio": str(row.audio),
                 "audio_sha256": sha256_file(row.audio),
                 "transcript_sha256": hashlib.sha256(row.text.encode()).hexdigest(),
+                "instruction_sha256": (
+                    hashlib.sha256(row.instruction.encode()).hexdigest()
+                    if row.instruction is not None
+                    else None
+                ),
                 "example": example_summary(example, config),
             }
         )

@@ -5,9 +5,25 @@ from typing import Any
 
 import torch
 
-from breeze_infer.templates import _prepare_one
+from breeze_infer.templates import INSTRUCTION_BOS, INSTRUCTION_EOS, _prepare_one
 
 IGNORE_INDEX = -100
+
+
+def render_supervised_prompt(
+    transcript: str, *, instruction: str | None = None, speaker: str = "S0"
+) -> str:
+    transcript = transcript.strip()
+    if not transcript:
+        raise ValueError("transcript must not be empty")
+    if instruction is not None:
+        instruction = instruction.strip()
+        if not instruction:
+            raise ValueError("instruction must not be empty when provided")
+    prefix = speaker if speaker.startswith("[") else f"[{speaker}]"
+    if instruction is None:
+        return f"{prefix}{transcript}"
+    return f"{prefix}{INSTRUCTION_BOS}{instruction}{INSTRUCTION_EOS}{transcript}"
 
 
 def normalize_audio_tokens(audio_tokens: torch.Tensor) -> torch.Tensor:
@@ -62,6 +78,7 @@ def build_supervised_example(
     *,
     audio_path: str | Path,
     transcript: str,
+    instruction: str | None = None,
     speaker: str = "S0",
 ) -> dict[str, torch.Tensor]:
     """Create one teacher-forced text-to-audio example from an exact transcript."""
@@ -69,17 +86,15 @@ def build_supervised_example(
     audio_path = Path(audio_path)
     if not audio_path.is_file():
         raise FileNotFoundError(audio_path)
-    transcript = transcript.strip()
-    if not transcript:
-        raise ValueError("transcript must not be empty")
-
-    prefix = speaker if speaker.startswith("[") else f"[{speaker}]"
+    prompt = render_supervised_prompt(
+        transcript, instruction=instruction, speaker=speaker
+    )
     prepared = _prepare_one(
         tokenizer,
         audio_tokenizer,
         model_config,
         [
-            {"type": "text", "text": f"{prefix}{transcript}"},
+            {"type": "text", "text": prompt},
             {
                 "type": "audio",
                 "audio_path": str(audio_path),

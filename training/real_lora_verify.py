@@ -24,10 +24,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--training-root", type=Path, required=True)
     parser.add_argument("--checkpoint", type=Path)
     parser.add_argument("--verification-output", type=Path)
-    parser.add_argument("--merged-output", type=Path, required=True)
+    parser.add_argument("--merged-output", type=Path)
+    parser.add_argument(
+        "--adapter-only",
+        action="store_true",
+        help="freshly load and validate the adapter without merging base weights",
+    )
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--validation-examples", type=int, default=16)
     return parser.parse_args()
+
+
+def validate_output_mode(args: argparse.Namespace) -> None:
+    if args.adapter_only and args.merged_output is not None:
+        raise ValueError("--adapter-only and --merged-output are mutually exclusive")
+    if not args.adapter_only and args.merged_output is None:
+        raise ValueError("--merged-output is required unless --adapter-only is used")
 
 
 def average_loss(
@@ -47,6 +59,7 @@ def average_loss(
 
 def main() -> int:
     args = parse_args()
+    validate_output_mode(args)
     receipt = json.loads((args.training_root / "training-receipt.json").read_text())
     configuration = receipt["configuration"]
     checkpoint = args.checkpoint or Path(receipt["final_checkpoint"])
@@ -78,6 +91,34 @@ def main() -> int:
     if hashes != checkpoint_receipt["adapter_tensor_hashes"]:
         raise RuntimeError("fresh-process adapter tensor hashes differ")
     adapter_loss = average_loss(model, paths, args.device)
+    if args.adapter_only:
+        verify_receipt = {
+            "schema_version": 1,
+            "status": "fresh_process_adapter_reload_verified",
+            "checkpoint": str(checkpoint),
+            "adapter_file_sha256": sha256_file(adapter_path),
+            "adapter_tensor_hashes_matched": True,
+            "validation_examples": len(paths),
+            "loss": {"adapter": adapter_loss},
+            "peak_cuda_memory_bytes": int(
+                torch.cuda.max_memory_allocated(args.device)
+            ),
+            "peak_cuda_reserved_bytes": int(
+                torch.cuda.max_memory_reserved(args.device)
+            ),
+        }
+        path = (
+            args.verification_output
+            or args.training_root / "verification-receipt.json"
+        )
+        if path.exists():
+            raise FileExistsError(
+                f"refusing to overwrite verification receipt: {path}"
+            )
+        path.write_text(json.dumps(verify_receipt, indent=2, sort_keys=True) + "\n")
+        print(json.dumps(verify_receipt, indent=2, sort_keys=True))
+        return 0
+
     merged_count = merge_lora(model)
     if merged_count != len(families):
         raise RuntimeError("merged module count differs from target count")

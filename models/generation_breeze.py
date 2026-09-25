@@ -169,9 +169,6 @@ class BreezeGenerationMixin(GenerationMixin):
         top_p = generation_config.top_p
         top_k = generation_config.top_k
 
-        batch_size = depth_decoder_input_ids.shape[0]
-        device = depth_decoder_input_ids.device
-
         # Initialize sequences with input_ids (which contains placeholder + token0)
         sequences = depth_decoder_input_ids  # [batch_size, 2]
 
@@ -266,9 +263,6 @@ class BreezeGenerationMixin(GenerationMixin):
         temperature = generation_config.temperature
         top_p = generation_config.top_p
         top_k = generation_config.top_k
-
-        batch_size = depth_decoder_input_ids.shape[0]
-        device = depth_decoder_input_ids.device
 
         sequences = depth_decoder_input_ids  # [batch_size, 2]
 
@@ -469,7 +463,6 @@ class BreezeGenerationMixin(GenerationMixin):
         # init values
         # *************** Breeze specific ***************
         pad_token_id = self.config.codebook_pad_token_id
-        has_eos_stopping_criteria = generation_config._eos_token_tensor is not None
         # ============================================
         output_attentions = generation_config.output_attentions
         output_hidden_states = generation_config.output_hidden_states
@@ -1336,11 +1329,6 @@ class BreezeGenerationMixin(GenerationMixin):
                                 codec_decode_output
                             )
 
-                        codes_min_max = (
-                            audio_codes_batch.min().item(),
-                            audio_codes_batch.max().item(),
-                        )
-                        # logger.info(f"Decoded audio codes with min/max values: {codes_min_max}")
                     audio.append(decode_audio)
                 # =======================================
 

@@ -2,6 +2,8 @@
 runs/
 outputs/
 artifacts/
+_artifacts/
+p003/
 checkpoints/
 cache/
 warmup_manifest.json
