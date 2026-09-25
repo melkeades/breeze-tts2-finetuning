@@ -48,12 +48,13 @@ revision or file mismatch.
 
 Use the companion source toolkit:
 
-```bash
-python infer.py /models/Breeze-TTS-2 \
-  --adapter /models/sg-narration-lora-r8 \
-  --base-revision 799624c0b4a1daa8db6d28bbd9850043c0270734 \
-  --text "The train arrives in five minutes." \
-  --output output.wav
+```powershell
+.\scripts\run_inference.ps1 `
+  -ModelRoot 'D:\models\Breeze-TTS-2' `
+  -Adapter 'D:\models\sg-narration-lora-r8' `
+  -Text 'The train arrives in five minutes.' `
+  -Output 'output.wav' `
+  --base-revision '799624c0b4a1daa8db6d28bbd9850043c0270734'
 ```
 
 Source and documentation:

@@ -12,7 +12,7 @@ from models.breeze_config import BreezeConfig
 def configure_attention(config, implementation: str):
     """Propagate one supported attention backend through every sub-config."""
 
-    if implementation not in {"eager", "sdpa"}:
+    if implementation not in {"eager", "sdpa", "flash_attention_2"}:
         raise ValueError(f"unsupported training attention backend: {implementation}")
 
     config._attn_implementation = implementation
@@ -57,6 +57,7 @@ def load_training_model(
     *,
     device: str,
     attention_implementation: str = "eager",
+    text_encoder_attention_implementation: str | None = None,
 ) -> BreezeForConditionalGeneration:
     config = BreezeConfig.from_pretrained(model_root)
     configure_attention(config, attention_implementation)
@@ -69,6 +70,16 @@ def load_training_model(
     )
     model.to(device)
     model.config.use_cache = False
+    if text_encoder_attention_implementation is not None:
+        if text_encoder_attention_implementation != "flash_attention_2":
+            raise ValueError(
+                "text encoder override currently supports only flash_attention_2"
+            )
+        if model.text_encoder is None:
+            raise ValueError("model has no text encoder to configure")
+        model.text_encoder.config._attn_implementation = (
+            text_encoder_attention_implementation
+        )
     return model
 
 

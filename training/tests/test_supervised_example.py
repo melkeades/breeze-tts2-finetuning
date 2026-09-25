@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from training.real_data import ManifestRow, read_manifest, select_rows, stable_row_key
-from training.real_lora import example_index, lr_multiplier
+from training.real_lora import bucket_example_sequence, example_index, lr_multiplier
 from training.supervised_example import (
     IGNORE_INDEX,
     make_supervised_labels,
@@ -96,3 +96,23 @@ def test_learning_rate_multiplier_warms_then_decays() -> None:
     assert values[1] == pytest.approx(1.0)
     assert values[2] == pytest.approx(1.0)
     assert values[-1] < values[2]
+
+
+def test_sequence_bucketing_pads_only_model_sequence_tensors() -> None:
+    value = {
+        "input_ids": torch.tensor([[1, 2, 3]]),
+        "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        "labels": torch.tensor([[-100, 20, -100]]),
+        "text_ids_mask": torch.tensor([[True, False, False]]),
+        "text_ids_len": torch.tensor([1]),
+        "input_values": torch.ones((1, 1, 16), dtype=torch.long),
+    }
+
+    padded = bucket_example_sequence(value, 4)
+
+    assert padded["input_ids"].tolist() == [[1, 2, 3, 0]]
+    assert padded["attention_mask"].tolist() == [[1, 1, 1, 0]]
+    assert padded["labels"].tolist() == [[-100, 20, -100, -100]]
+    assert padded["text_ids_mask"].tolist() == [[True, False, False, False]]
+    assert padded["text_ids_len"] is value["text_ids_len"]
+    assert padded["input_values"] is value["input_values"]

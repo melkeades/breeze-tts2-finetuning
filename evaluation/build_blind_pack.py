@@ -6,6 +6,7 @@ import json
 import os
 import random
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,41 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def restrict_private_file(path: Path) -> None:
+    if os.name != "nt":
+        path.chmod(0o600)
+        return
+
+    identity = subprocess.check_output(
+        ["whoami"], text=True, encoding="utf-8"
+    ).strip()
+    completed = subprocess.run(
+        [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{identity}:(F)",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"failed to protect private file {path}: {completed.stderr.strip()}"
+        )
+
+
 def atomic_json(path: Path, value: Any, mode: int | None = None) -> None:
     partial = path.with_name(path.name + ".partial")
     partial.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
-    if mode is not None:
+    if mode is not None and os.name != "nt":
         partial.chmod(mode)
     os.replace(partial, path)
+    if mode is not None and os.name == "nt":
+        restrict_private_file(path)
 
 
 def collect_audio(run_root: Path) -> list[Path]:
@@ -126,7 +156,6 @@ def main() -> int:
         },
         mode=0o600,
     )
-    private_key.chmod(0o600)
     print(
         json.dumps(
             {

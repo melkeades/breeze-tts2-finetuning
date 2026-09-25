@@ -85,6 +85,9 @@ def main() -> int:
         attention_implementation=configuration.get(
             "attention_implementation", "eager"
         ),
+        text_encoder_attention_implementation=configuration.get(
+            "text_encoder_attention_implementation"
+        ),
     )
     families = inject_lora(
         model,

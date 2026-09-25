@@ -21,11 +21,11 @@ frozen.
 
 Use these gates in order:
 
-1. `scripts/run_full_sft_smoke.sh` proves one finite BF16 update and a fresh
+1. `scripts/run_full_sft_smoke.ps1` proves one finite BF16 update and a fresh
    reload on one example.
-2. `scripts/prepare_cache.sh` creates deterministic train and validation tensor
+2. `scripts/prepare_cache.ps1` creates deterministic train and validation tensor
    caches from disjoint manifests.
-3. `scripts/run_lora.sh` or `scripts/run_full_sft.sh` runs the selected path.
+3. `scripts/run_lora.ps1` or `scripts/run_full_sft.ps1` runs the selected path.
 4. Select a checkpoint from held-out validation history.
 5. Run the corresponding fresh-process verification and export.
 6. Generate matched audio and freeze blind ratings before decoding identities.
@@ -40,6 +40,47 @@ adaptation, speaker similarity, naturalness, or convergence.
 optimizer, scheduler, random-number state, and receipt. SIGTERM requests a clean
 stop at a checkpoint boundary. Resume requires an explicit checkpoint and a new
 output root.
+
+The released checkpoint prefers FlashAttention 2 only for its frozen T5Gemma2
+text encoder. To retain that scoped preference during LoRA training, install the
+locked Windows environment and pass:
+
+```powershell
+.\scripts\run_lora.ps1 `
+  --attention-implementation eager `
+  --text-encoder-attention-implementation flash_attention_2
+```
+
+Do not apply FlashAttention 2 globally to the causal backbone or depth decoder.
+The Windows RTX 5090 admission run produced finite forward losses but non-finite
+backward gradients in those paths. The CLI therefore exposes FA2 only as a
+text-encoder override; `eager` and `sdpa` remain the supported global training
+backends.
+
+Experimental `torch.compile` support can compile only the synthesis backbone's
+repeated transformer blocks:
+
+```powershell
+.\scripts\run_lora.ps1 `
+  --compile-regions backbone `
+  --compile-mode default
+```
+
+The first step performs a cold compile. The Inductor cache makes later launches
+cheaper, and the trainer initializes the installed Visual Studio x64 build
+environment automatically when it is started from a normal PowerShell session.
+Do not use `reduce-overhead` for these regional blocks: its CUDA Graph output
+lifetime is incompatible with one compiled wrapper per transformer layer.
+
+Compilation and the text-encoder FlashAttention override remain opt-in because
+their BF16 results are not bit-identical to eager training. A paired 250-step RTX
+5090 experiment evaluated 80 generated WAVs per checkpoint: 20 neutral, 20 with
+style instructions, 20 sound-tag controls, and 20 sound-tagged prompts. Relative
+to native eager training, backbone compilation changed mean NISQA by +0.0187 and
+compilation plus text-encoder FA2 changed it by +0.0184; both paired 95% bootstrap
+intervals included zero. P808 and WavLM identity likewise showed no material
+aggregate regression. These automatic proxies support using the options for
+experiments, but a blind listening test is still required for a perceptual claim.
 
 After validation selection, `training.real_lora_verify` reloads the adapter in a
 fresh process, evaluates held-out examples, merges the adapted linear layers,

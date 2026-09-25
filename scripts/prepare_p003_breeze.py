@@ -288,15 +288,9 @@ def main() -> int:
     slice_audio_root = artifact_root / "dataset" / "audio"
     slice_audio_root.mkdir(parents=True, exist_ok=False)
 
-    edit_path = (
-        dataset_root
-        / "tail-sigh-cliping-removed"
-        / "p003-emotion-style-sfx-dataset-trial1-edits.json"
-    )
+    edit_path = dataset_root / "p003-emotion-style-sfx-dataset-trial1-edits.json"
     timestamp_path = (
-        dataset_root
-        / "full"
-        / "transcripts_freeform_whisper_fastapi_raw-20260501-175154.json"
+        dataset_root / "transcripts_freeform_whisper_fastapi_raw-20260501-175154.json"
     )
     edit_document = json.loads(edit_path.read_text(encoding="utf-8"))
     timestamps = json.loads(timestamp_path.read_text(encoding="utf-8"))
@@ -313,7 +307,7 @@ def main() -> int:
 
     slice_metadata: dict[str, dict[str, Any]] = {}
     for relative_path in sorted(LONG_RECORDINGS):
-        source_path = dataset_root / "full" / relative_path
+        source_path = dataset_root / relative_path
         source_stem = Path(relative_path).stem
         source_edits = grouped[relative_path]
         boundaries, matches = slice_boundaries(source_edits, timestamps[source_stem])
@@ -353,7 +347,7 @@ def main() -> int:
     inferred_counts: Counter[str] = Counter()
     for edit in edits:
         relative_path = edit["relative_path"]
-        source_path = (dataset_root / "full" / relative_path).resolve()
+        source_path = (dataset_root / relative_path).resolve()
         if not source_path.is_file():
             raise FileNotFoundError(source_path)
         if relative_path not in source_duration_by_name:
@@ -445,7 +439,7 @@ def main() -> int:
         },
         "records": records,
     }
-    transcript_path = dataset_root / "transcripts.breeze.json"
+    transcript_path = artifact_root / "transcripts.breeze.json"
     transcript_path.write_text(
         json.dumps(transcript_document, indent=2, ensure_ascii=False, sort_keys=True)
         + "\n",

@@ -166,24 +166,23 @@ def main() -> None:
     }
     commands = {
         "environment": (
-            "export CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES=0 "
-            "HF_HOME=/mnt/d/huggingface HF_HUB_OFFLINE=1 "
-            "TRANSFORMERS_OFFLINE=1"
+            "$env:CUDA_VISIBLE_DEVICES='0'; $env:HF_HUB_OFFLINE='1'; "
+            "$env:TRANSFORMERS_OFFLINE='1'"
         ),
-        "cache": "bash scripts/prepare_cache.sh --train-limit 159 --validation-limit 14",
+        "cache": ".\\scripts\\prepare_cache.ps1 --train-limit 159 --validation-limit 14",
         "smoke_step_1": (
-            "bash scripts/run_lora.sh --max-steps 2 --save-every 1 "
+            ".\\scripts\\run_lora.ps1 --max-steps 2 --save-every 1 "
             "--validation-examples 2 --stop-after-step 1"
         ),
         "smoke_resume": (
-            "bash scripts/run_lora.sh --max-steps 2 --save-every 1 "
+            ".\\scripts\\run_lora.ps1 --max-steps 2 --save-every 1 "
             "--validation-examples 2 --resume-checkpoint "
             "_artifacts/09-25_02-49_Breeze-p003-LoRA/smoke-run/"
             "checkpoint-step-000001"
         ),
-        "full_train": "bash scripts/run_lora.sh --validation-examples 14",
+        "full_train": ".\\scripts\\run_lora.ps1 --validation-examples 14",
         "full_resume": (
-            "bash scripts/run_lora.sh --validation-examples 14 "
+            ".\\scripts\\run_lora.ps1 --validation-examples 14 "
             "--resume-checkpoint _artifacts/09-25_02-49_Breeze-p003-LoRA/"
             "full-run/checkpoint-step-000750"
         ),

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Breeze TTS 2 · Inference Console</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <div class="ambient ambient-a"></div>
+    <div class="ambient ambient-b"></div>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Breeze home">
+        <span class="brand-mark"><i></i><i></i><i></i></span>
+        <span><b>Breeze</b><small>TTS 2 · inference console</small></span>
+      </a>
+      <div class="runtime-state">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="runtimeStatus">Connecting</span>
+        <span class="top-divider"></span>
+        <span id="fastPath">Runtime —</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Streaming speech workspace</p>
+          <h1>Hear the first word<br><em>without the wait.</em></h1>
+        </div>
+        <p class="hero-copy">Generate bilingual speech, audition LoRA voices, and inspect real client-side latency as the audio arrives.</p>
+      </section>
+
+      <section class="adapter-panel panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="section-index">01 / WEIGHTS</p>
+            <h2>Voice adapter</h2>
+          </div>
+          <span class="adapter-state" id="adapterState">Loading catalog…</span>
+        </div>
+        <div class="adapter-controls">
+          <label class="field grow">
+            <span>LoRA selection</span>
+            <select id="adapterSelect" disabled></select>
+            <small id="adapterDescription">Configure <code>--adapters-dir</code> to discover adapters.</small>
+          </label>
+          <button class="secondary-button" id="reloadButton" disabled>Load weights</button>
+        </div>
+        <div class="reload-progress hidden" id="reloadProgress" aria-live="polite">
+          <div class="progress-copy">
+            <span id="reloadStage">Preparing reload</span>
+            <span id="reloadEta">Estimating…</span>
+          </div>
+          <div class="track"><div id="reloadBar"></div></div>
+        </div>
+      </section>
+
+      <div class="workspace-grid">
+        <section class="composer panel">
+          <div class="panel-heading">
+            <div>
+              <p class="section-index">02 / SCRIPT</p>
+              <h2>Shape the performance</h2>
+            </div>
+            <span class="counter"><b id="charCount">0</b> / 900</span>
+          </div>
+
+          <form id="speechForm">
+            <label class="field">
+              <span>Text to speak</span>
+              <textarea id="text" maxlength="900" required placeholder="Write the words you want to hear…">Welcome aboard. Your journey begins now.</textarea>
+            </label>
+
+            <label class="field">
+              <span>Voice direction</span>
+              <textarea class="short" id="instruction" maxlength="560">A warm, thoughtful speaker with a clear voice and calm, confident delivery.</textarea>
+            </label>
+
+            <details class="reference-block">
+              <summary>Clone from reference audio <span>Optional</span></summary>
+              <div class="reference-grid">
+                <label class="file-drop" id="fileDrop">
+                  <input id="refAudio" type="file" accept="audio/*,.wav">
+                  <span class="upload-icon">↥</span>
+                  <span><b id="fileName">Choose a clean voice sample</b><small>WAV recommended · exact transcript required</small></span>
+                </label>
+                <label class="field">
+                  <span>Reference transcript</span>
+                  <textarea class="short" id="refText" placeholder="Every spoken word in the sample"></textarea>
+                </label>
+              </div>
+            </details>
+
+            <div class="settings-row">
+              <label class="field">
+                <span>CFG scale</span>
+                <div class="range-wrap">
+                  <input id="cfgScale" type="range" min="1" max="6" step="0.5" value="4">
+                  <output id="cfgValue">4.0</output>
+                </div>
+              </label>
+              <label class="field seed-field">
+                <span>Seed</span>
+                <input id="seed" type="number" value="42" min="0" max="2147483647">
+              </label>
+            </div>
+
+            <div class="action-row">
+              <button class="primary-button" id="generateButton" type="submit"><span>Generate speech</span><i>→</i></button>
+              <label class="stream-toggle"><input id="livePlayback" type="checkbox" checked><span></span>Play while streaming</label>
+            </div>
+          </form>
+        </section>
+
+        <section class="performance panel">
+          <div class="panel-heading">
+            <div>
+              <p class="section-index">03 / PERFORMANCE</p>
+              <h2>Latency, honestly measured</h2>
+            </div>
+            <span class="measurement-badge">CLIENT CLOCK</span>
+          </div>
+
+          <div class="metrics-grid">
+            <article class="metric-card primary-metric">
+              <p>Time to first audio</p>
+              <strong id="ttfaValue">—</strong><span>ms</span>
+              <small>First detected voice onset</small>
+            </article>
+            <article class="metric-card">
+              <p>Real-time factor</p>
+              <strong id="rtfValue">—</strong><span>×</span>
+              <small id="rtfNote">Render time ÷ audio length</small>
+            </article>
+            <article class="metric-card">
+              <p>Audio duration</p>
+              <strong id="durationValue">—</strong><span>s</span>
+              <small id="chunkNote">Awaiting a run</small>
+            </article>
+            <article class="metric-card">
+              <p>Total render</p>
+              <strong id="renderValue">—</strong><span>s</span>
+              <small id="silenceNote">Includes network delivery</small>
+            </article>
+          </div>
+
+          <div class="stream-card" id="streamCard">
+            <div class="stream-head">
+              <div>
+                <span class="live-pill"><i></i><b id="streamLabel">IDLE</b></span>
+                <p id="streamStatus">Ready for a new performance.</p>
+              </div>
+              <span id="streamClock">00:00.0</span>
+            </div>
+            <canvas id="waveform" width="960" height="190" aria-label="Generated audio waveform"></canvas>
+            <audio id="audioPlayer" controls></audio>
+            <div class="download-row">
+              <button id="downloadButton" class="text-button" disabled>Download WAV ↘</button>
+              <button id="clearButton" class="text-button">Clear result</button>
+            </div>
+          </div>
+
+          <p class="method-note"><b>TTFA ≠ TTFB.</b> This uses BreezeBlue’s benchmark definition: the later of voice-onset audio-clock time and the moment those onset samples were available to this browser. RTF uses request-to-EOF wall time.</p>
+        </section>
+      </div>
+
+      <section class="history panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="section-index">04 / SESSION</p>
+            <h2>Recent runs</h2>
+          </div>
+          <button class="text-button" id="clearHistory">Clear history</button>
+        </div>
+        <div class="history-table" id="historyTable">
+          <div class="empty-history">Completed generations will appear here.</div>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>Breeze TTS 2</span><span>Research and non-commercial model use only</span></footer>
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

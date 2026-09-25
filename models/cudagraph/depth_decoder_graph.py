@@ -26,6 +26,7 @@ Strategy:
 """
 
 import logging
+import sys
 from dataclasses import dataclass
 
 import torch
@@ -164,13 +165,25 @@ class DepthDecoderGraph:
         # The fast path uses one maintained compile configuration before
         # manual CUDA Graph capture. Compile modes are intentionally not public.
         if self.fast:
+            if sys.platform == "win32":
+                # PyTorch's static CUDA launcher passes stream pointers through
+                # a C long, which is only 32-bit on Windows. Keep Inductor and
+                # Triton enabled, but use Triton's launcher until upstream fixes
+                # the Windows pointer conversion.
+                torch._inductor.config.use_static_cuda_launcher = False
             compile_mode = "default"
-            _limit = self.num_layers * 4 + 16
+            # A hot adapter reload compiles a second model instance in the
+            # long-lived API process. Leave enough Dynamo specializations for
+            # several reloads instead of exhausting the default 64-entry cap.
+            _limit = max(512, self.num_layers * 16 + 32)
             torch._dynamo.config.cache_size_limit = max(
                 torch._dynamo.config.cache_size_limit, _limit
             )
             torch._dynamo.config.recompile_limit = max(
                 torch._dynamo.config.recompile_limit, _limit
+            )
+            torch._dynamo.config.accumulated_recompile_limit = max(
+                torch._dynamo.config.accumulated_recompile_limit, _limit * 4
             )
             already_compiled = hasattr(self.depth_model.layers[0], "_orig_mod")
             if already_compiled:

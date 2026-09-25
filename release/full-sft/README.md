@@ -48,10 +48,11 @@ included.
 
 Use the companion source toolkit:
 
-```bash
-python infer.py /models/sg-narration-full-sft \
-  --text "The train arrives in five minutes." \
-  --output output.wav
+```powershell
+.\scripts\run_inference.ps1 `
+  -ModelRoot 'D:\models\sg-narration-full-sft' `
+  -Text 'The train arrives in five minutes.' `
+  -Output 'output.wav'
 ```
 
 Source and documentation:

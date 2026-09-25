@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import random
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -75,8 +76,14 @@ def load_runtime(
     attn_implementation: str,
     adapter_root: Path | None = None,
     base_revision: str | None = None,
+    progress: Callable[[str, float], None] | None = None,
 ) -> tuple[AutoTokenizer, BreezeForConditionalGeneration, Any]:
 
+    def report(stage: str, fraction: float) -> None:
+        if progress is not None:
+            progress(stage, fraction)
+
+    report("Selecting CUDA device", 0.02)
     if device.startswith("cuda"):
         try:
             torch.cuda.set_device(device)
@@ -88,16 +95,20 @@ def load_runtime(
                 f"CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')} "
                 f"device_count={torch.cuda.device_count()}"
             ) from exc
+    report("Loading text tokenizer", 0.08)
     tokenizer = AutoTokenizer.from_pretrained(ckpt_dir, fix_mistral_regex=False)
+    report("Loading base model weights", 0.16)
     model = BreezeForConditionalGeneration.from_pretrained(
         ckpt_dir,
         dtype=torch.bfloat16,
         attn_implementation=attn_implementation,
     )
+    report("Moving base model to GPU", 0.58)
     model.to(device).eval()
     if adapter_root is not None:
         from breeze_infer.adapter import apply_adapter
 
+        report("Validating and applying LoRA", 0.66)
         apply_adapter(
             model,
             model_root=ckpt_dir,
@@ -107,6 +118,7 @@ def load_runtime(
 
     from qwen_tts import Qwen3TTSTokenizer
 
+    report("Loading streaming audio codec", 0.76)
     bundled_audio_tokenizer = ckpt_dir / "audio_tokenizer"
     if not bundled_audio_tokenizer.is_dir():
         raise FileNotFoundError(
@@ -117,4 +129,5 @@ def load_runtime(
     audio_tokenizer = Qwen3TTSTokenizer.from_pretrained(
         str(bundled_audio_tokenizer), device_map=device
     )
+    report("Runtime weights loaded", 0.86)
     return tokenizer, model, audio_tokenizer

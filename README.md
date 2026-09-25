@@ -40,19 +40,58 @@ quality on every dataset or GPU.
 
 ## Install
 
-Use Linux, Python 3.11, and a CUDA GPU. The dependency pins match the upstream
-runtime.
+Use Windows PowerShell, Python 3.12, `uv`, and an NVIDIA CUDA GPU. `uv` creates
+the repository-local `.venv`; its download cache remains in the normal user
+cache instead of being copied into this repository.
 
-```bash
+```powershell
 git clone https://github.com/instavar/breeze-tts2-finetuning.git
-cd breeze-tts2-finetuning
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
+Set-Location breeze-tts2-finetuning
+uv sync --extra evaluation --group dev
+.\.venv\Scripts\Activate.ps1
 ```
+
+The PowerShell launchers select physical GPU 0 by default. On the documented
+machine that is the RTX 5090; set `$env:CUDA_VISIBLE_DEVICES` explicitly to
+override it.
 
 Obtain Breeze TTS 2 separately from its official distribution after reading and
 accepting its model agreement. Do not add the checkpoint to this repository.
+
+## Low-latency web inference
+
+The streaming API includes a dark browser client at `/`. It plays raw PCM as it
+arrives, reports time to first audio (TTFA) and real-time factor (RTF), and can
+switch between validated LoRA releases without restarting the server.
+
+The server enables the warmed `--fast-all` path by default. This follows the
+[official Breeze TTS 2 inference guidance](https://github.com/breezeblue-ai/breeze-tts#%EF%B8%8F-fast-inference-options):
+CUDA graphs are used for the text encoder, backbone prefill/decode, depth
+decoder, and one-frame streaming codec. The upstream documentation reports
+about 14.4 GiB of GPU memory for this mode. Use `--no-fast-all` when cold-start
+time or memory matters more than request latency.
+
+```powershell
+.\scripts\start_ui.ps1 `
+  -ModelRoot 'D:\models\Breeze-TTS-2' `
+  -AdaptersDir 'D:\models\breeze-adapters' `
+  -ListenAddress '0.0.0.0' `
+  -Port 7860
+```
+
+Then open <http://127.0.0.1:7860/>. Each immediate child (or nested directory)
+under `--adapters-dir` that contains an `adapter_config.json` release manifest
+appears in the LoRA dropdown. Weight changes release the current runtime, load
+and validate the selected adapter, rebuild the streaming runtime, warm its CUDA
+graphs, and report phase progress plus an estimated remaining time.
+
+The headline TTFA is deliberately not HTTP time to first byte. The client uses
+the [BreezeBlue latency benchmark](https://github.com/breezeblue-ai/TTS-Latency-Benchmark#measurement-protocol)
+definition and its relative dual-energy/hysteresis onset detector: TTFA is the
+later of the voice-onset audio clock and the time the onset samples became
+available to the browser. RTF is request-to-stream-EOF wall time divided by the
+decoded audio duration. Both measurements therefore include local HTTP delivery
+over the actual client path.
 
 ## Dataset manifest
 
@@ -60,22 +99,27 @@ Create separate train and validation JSONL files. Each row has an absolute audio
 path and its exact transcript:
 
 ```json
-{"audio":"/data/speaker/0001.wav","text":"The exact words spoken in this file."}
+{"audio":"D:\\data\\speaker\\0001.wav","text":"The exact words spoken in this file."}
 ```
 
 Use clean, single-speaker recordings and only material for which you have all
 necessary rights and consent. Keep the validation recordings disjoint from the
 training recordings.
 
+For the included ignored `p003` working data, the only supported source folder
+is `p003\tail-sigh-cliping-removed`. The converter reads WAVs and transcript
+metadata directly from that folder; no `full`, `stt`, `seam`, or `24` copy is
+required.
+
 ## Prepare deterministic targets
 
-```bash
-export BREEZE_MODEL_ROOT=/models/Breeze-TTS-2
-export BREEZE_TRAIN_MANIFEST=/data/train.jsonl
-export BREEZE_VALIDATION_MANIFEST=/data/validation.jsonl
-export BREEZE_CACHE_ROOT=/runs/cache-v1
+```powershell
+$env:BREEZE_MODEL_ROOT = 'D:\models\Breeze-TTS-2'
+$env:BREEZE_TRAIN_MANIFEST = 'D:\data\train.jsonl'
+$env:BREEZE_VALIDATION_MANIFEST = 'D:\data\validation.jsonl'
+$env:BREEZE_CACHE_ROOT = 'D:\runs\cache-v1'
 
-bash scripts/prepare_cache.sh --train-limit 1024 --validation-limit 128
+.\scripts\prepare_cache.ps1 --train-limit 1024 --validation-limit 128
 ```
 
 The cache stores model-ready tensors and a receipt containing hashes and source
@@ -83,49 +127,51 @@ revision information. Treat it as sensitive if the source dataset is sensitive.
 
 ## Run LoRA
 
-```bash
-export BREEZE_RUN_ROOT=/runs/lora-r8
-bash scripts/run_lora.sh \
-  --rank 8 \
-  --alpha 16 \
-  --max-steps 1000 \
-  --gradient-accumulation 4 \
-  --learning-rate 2e-4 \
+```powershell
+$env:BREEZE_RUN_ROOT = 'D:\runs\lora-r8'
+.\scripts\run_lora.ps1 `
+  --rank 8 `
+  --alpha 16 `
+  --max-steps 1000 `
+  --gradient-accumulation 4 `
+  --learning-rate 2e-4 `
   --save-every 250
 ```
 
 Resume by using a new output root and passing the prior checkpoint explicitly:
 
-```bash
-bash scripts/run_lora.sh \
-  --resume-checkpoint /runs/lora-r8/checkpoint-step-000250 \
+```powershell
+$env:BREEZE_RUN_ROOT = 'D:\runs\lora-r8-resumed'
+.\scripts\run_lora.ps1 `
+  --resume-checkpoint 'D:\runs\lora-r8\checkpoint-step-000250' `
   --max-steps 1000
 ```
 
 Adapter verification and merge are separate so a failed verification cannot
 overwrite the training run:
 
-```bash
-python -m training.real_lora_verify \
-  --model-root "$BREEZE_MODEL_ROOT" \
-  --cache-root "$BREEZE_CACHE_ROOT" \
-  --training-root /runs/lora-r8 \
-  --merged-output /runs/lora-r8-merged
+```powershell
+uv run python -m training.real_lora_verify `
+  --model-root $env:BREEZE_MODEL_ROOT `
+  --cache-root $env:BREEZE_CACHE_ROOT `
+  --training-root 'D:\runs\lora-r8' `
+  --merged-output 'D:\runs\lora-r8-merged'
 
-python -m training.real_lora_merged_smoke \
-  --cache-root "$BREEZE_CACHE_ROOT" \
-  --training-root /runs/lora-r8 \
-  --merged-model /runs/lora-r8-merged
+uv run python -m training.real_lora_merged_smoke `
+  --cache-root $env:BREEZE_CACHE_ROOT `
+  --training-root 'D:\runs\lora-r8' `
+  --merged-model 'D:\runs\lora-r8-merged'
 ```
 
 Published adapters can also be loaded without creating a merged checkpoint:
 
-```bash
-python infer.py "$BREEZE_MODEL_ROOT" \
-  --adapter /models/sg-narration-lora-r8 \
-  --base-revision <exact-base-revision> \
-  --text "The train arrives in five minutes." \
-  --output output.wav
+```powershell
+.\scripts\run_inference.ps1 `
+  -ModelRoot $env:BREEZE_MODEL_ROOT `
+  -Adapter 'D:\models\sg-narration-lora-r8' `
+  -Text 'The train arrives in five minutes.' `
+  -Output 'output.wav' `
+  --base-revision '<exact-base-revision>'
 ```
 
 The adapter manifest pins the base revision and required base-model file hashes.
@@ -135,22 +181,22 @@ Loading fails closed if any pinned identity check differs.
 
 Start with the one-example feasibility gate before committing to a real run:
 
-```bash
-export BREEZE_TRAIN_AUDIO=/data/speaker/0001.wav
-export BREEZE_TRAIN_TRANSCRIPT='The exact words spoken in this file.'
-export BREEZE_RUN_ROOT=/runs/full-sft-smoke
-bash scripts/run_full_sft_smoke.sh
+```powershell
+$env:BREEZE_TRAIN_AUDIO = 'D:\data\speaker\0001.wav'
+$env:BREEZE_TRAIN_TRANSCRIPT = 'The exact words spoken in this file.'
+$env:BREEZE_RUN_ROOT = 'D:\runs\full-sft-smoke'
+.\scripts\run_full_sft_smoke.ps1
 ```
 
 Then run multi-example full SFT:
 
-```bash
-export BREEZE_RUN_ROOT=/runs/full-sft
-bash scripts/run_full_sft.sh \
-  --optimizer fp32_master_sgd \
-  --max-steps 1000 \
-  --gradient-accumulation 4 \
-  --learning-rate 2e-5 \
+```powershell
+$env:BREEZE_RUN_ROOT = 'D:\runs\full-sft'
+.\scripts\run_full_sft.ps1 `
+  --optimizer fp32_master_sgd `
+  --max-steps 1000 `
+  --gradient-accumulation 4 `
+  --learning-rate 2e-5 `
   --save-every 250
 ```
 

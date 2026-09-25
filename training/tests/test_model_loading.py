@@ -30,7 +30,9 @@ def test_configure_eager_attention_handles_mixed_nested_config_shapes():
 def test_configure_sdpa_attention_handles_mixed_nested_config_shapes():
     backbone = {"preferred_attn_implementation": "eager", "use_cache": True}
     depth_decoder = SimpleNamespace(use_cache=True)
-    text_encoder = SimpleNamespace(preferred_attn_implementation="eager")
+    text_encoder = SimpleNamespace(
+        preferred_attn_implementation="eager", use_cache=True
+    )
     config = SimpleNamespace(
         use_cache=True,
         backbone_config=backbone,
@@ -44,3 +46,29 @@ def test_configure_sdpa_attention_handles_mixed_nested_config_shapes():
     assert depth_decoder._attn_implementation == "sdpa"
     assert text_encoder._attn_implementation == "sdpa"
     assert text_encoder.preferred_attn_implementation == "sdpa"
+
+
+def test_configure_flash_attention_handles_mixed_nested_config_shapes():
+    backbone = {"preferred_attn_implementation": "eager", "use_cache": True}
+    depth_decoder = SimpleNamespace(use_cache=True)
+    text_encoder = SimpleNamespace(
+        preferred_attn_implementation="eager", use_cache=True
+    )
+    config = SimpleNamespace(
+        use_cache=True,
+        backbone_config=backbone,
+        depth_decoder_config=depth_decoder,
+        text_encoder_config=text_encoder,
+    )
+
+    configure_attention(config, "flash_attention_2")
+
+    assert config._attn_implementation == "flash_attention_2"
+    assert backbone["_attn_implementation"] == "flash_attention_2"
+    assert backbone["preferred_attn_implementation"] == "flash_attention_2"
+    assert backbone["use_cache"] is False
+    assert depth_decoder._attn_implementation == "flash_attention_2"
+    assert depth_decoder.use_cache is False
+    assert text_encoder._attn_implementation == "flash_attention_2"
+    assert text_encoder.preferred_attn_implementation == "flash_attention_2"
+    assert text_encoder.use_cache is False

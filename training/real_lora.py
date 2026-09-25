@@ -59,9 +59,41 @@ def parse_args() -> argparse.Namespace:
         default="eager",
     )
     parser.add_argument(
+        "--text-encoder-attention-implementation",
+        choices=("inherit", "flash_attention_2"),
+        default="inherit",
+        help=(
+            "Optional text-encoder-only override. Global FlashAttention is not "
+            "offered because the causal Breeze backbone/depth path produces "
+            "non-finite training gradients with FA2."
+        ),
+    )
+    parser.add_argument(
         "--gradient-checkpointing",
         action=argparse.BooleanOptionalAction,
         default=True,
+    )
+    parser.add_argument(
+        "--compile-regions",
+        choices=("none", "backbone", "depth", "backbone-depth"),
+        default="none",
+    )
+    parser.add_argument(
+        "--compile-mode",
+        choices=("default", "max-autotune-no-cudagraphs", "reduce-overhead"),
+        default="default",
+    )
+    parser.add_argument(
+        "--compile-static",
+        action="store_true",
+        help="Specialize compiled regions to input shapes instead of dynamic shapes.",
+    )
+    parser.add_argument("--compile-optimizer", action="store_true")
+    parser.add_argument(
+        "--sequence-length-bucket",
+        type=int,
+        default=0,
+        help="Right-pad model sequence tensors to this multiple; zero disables it.",
     )
     parser.add_argument("--stop-after-step", type=int)
     return parser.parse_args()
@@ -101,6 +133,102 @@ def example_index(micro_step: int, length: int, *, seed: int) -> int:
 def move_example(path: Path, device: str) -> dict[str, torch.Tensor]:
     value = torch.load(path, map_location="cpu", weights_only=True)
     return {name: tensor.to(device) for name, tensor in value.items()}
+
+
+def bucket_example_sequence(
+    value: dict[str, torch.Tensor], multiple: int
+) -> dict[str, torch.Tensor]:
+    if multiple <= 0:
+        return value
+    sequence_length = int(value["input_ids"].shape[1])
+    target_length = math.ceil(sequence_length / multiple) * multiple
+    padding = target_length - sequence_length
+    if padding == 0:
+        return value
+
+    result = dict(value)
+    pad_values = {
+        "input_ids": 0,
+        "attention_mask": 0,
+        "labels": -100,
+        "text_ids_mask": False,
+    }
+    for name, pad_value in pad_values.items():
+        tensor = result[name]
+        if tensor.ndim != 2 or tensor.shape[1] != sequence_length:
+            raise ValueError(f"unexpected {name} shape for sequence bucketing")
+        result[name] = torch.nn.functional.pad(
+            tensor, (0, padding), value=pad_value
+        )
+    return result
+
+
+def ensure_windows_msvc_environment() -> None:
+    if sys.platform != "win32":
+        return
+    include_paths = os.environ.get("INCLUDE", "").split(os.pathsep)
+    if os.environ.get("LIB") and any(
+        (Path(path) / "omp.h").is_file() for path in include_paths if path
+    ):
+        return
+
+    roots = [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")),
+        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")),
+    ]
+    candidates = [
+        path
+        for root in roots
+        for path in root.glob(
+            "Microsoft Visual Studio/*/*/VC/Auxiliary/Build/vcvars64.bat"
+        )
+    ]
+    if not candidates:
+        raise RuntimeError(
+            "torch.compile on Windows requires Visual Studio C++ build tools"
+        )
+
+    vcvars = max(candidates, key=lambda path: path.stat().st_mtime)
+    result = subprocess.run(
+        f'call "{vcvars}" >nul && set',
+        shell=True,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for line in result.stdout.splitlines():
+        name, separator, value = line.partition("=")
+        if separator and name:
+            os.environ[name] = value
+
+
+def compile_training_regions(
+    model: torch.nn.Module,
+    *,
+    regions: str,
+    mode: str,
+    dynamic: bool,
+) -> int:
+    if regions == "none":
+        return 0
+    if sys.platform == "win32":
+        ensure_windows_msvc_environment()
+        torch._inductor.config.use_static_cuda_launcher = False
+
+    layers: list[torch.nn.Module] = []
+    if regions in {"backbone", "backbone-depth"}:
+        layers.extend(model.backbone_model.layers)
+    if regions in {"depth", "backbone-depth"}:
+        layers.extend(model.depth_decoder.model.layers)
+
+    for layer in layers:
+        layer.forward = torch.compile(
+            layer.forward,
+            mode=mode,
+            fullgraph=False,
+            dynamic=dynamic,
+        )
+    return len(layers)
 
 
 def lr_multiplier(step: int, *, warmup_steps: int, max_steps: int) -> float:
@@ -228,8 +356,20 @@ def run_configuration(
     }
     if args.attention_implementation != "eager":
         configuration["attention_implementation"] = args.attention_implementation
+    if args.text_encoder_attention_implementation != "inherit":
+        configuration["text_encoder_attention_implementation"] = (
+            args.text_encoder_attention_implementation
+        )
     if not args.gradient_checkpointing:
         configuration["gradient_checkpointing"] = False
+    if args.compile_regions != "none":
+        configuration["compile_regions"] = args.compile_regions
+        configuration["compile_mode"] = args.compile_mode
+        configuration["compile_dynamic"] = not args.compile_static
+    if args.compile_optimizer:
+        configuration["compile_optimizer"] = True
+    if args.sequence_length_bucket:
+        configuration["sequence_length_bucket"] = args.sequence_length_bucket
     return configuration
 
 
@@ -239,6 +379,8 @@ def main() -> int:
         raise RuntimeError("real LoRA training requires an available CUDA device")
     if args.max_steps <= 0 or args.gradient_accumulation <= 0:
         raise ValueError("step counts must be positive")
+    if args.sequence_length_bucket < 0:
+        raise ValueError("sequence-length-bucket must not be negative")
     if args.save_every <= 0 or args.max_steps % args.save_every:
         raise ValueError("save-every must divide max-steps")
     if (
@@ -282,6 +424,11 @@ def main() -> int:
         args.model_root,
         device=args.device,
         attention_implementation=args.attention_implementation,
+        text_encoder_attention_implementation=(
+            None
+            if args.text_encoder_attention_implementation == "inherit"
+            else args.text_encoder_attention_implementation
+        ),
     )
     if args.gradient_checkpointing:
         model.gradient_checkpointing_enable()
@@ -293,6 +440,12 @@ def main() -> int:
         seed=args.seed,
     )
     parameters = trainable_parameter_receipt(model, families)
+    compiled_region_count = compile_training_regions(
+        model,
+        regions=args.compile_regions,
+        mode=args.compile_mode,
+        dynamic=not args.compile_static,
+    )
     optimizer = torch.optim.AdamW(
         (parameter for parameter in model.parameters() if parameter.requires_grad),
         lr=args.learning_rate,
@@ -301,6 +454,17 @@ def main() -> int:
         eps=1e-8,
         foreach=False,
     )
+    optimizer_step = optimizer.step
+    if args.compile_optimizer:
+        if sys.platform == "win32":
+            ensure_windows_msvc_environment()
+            torch._inductor.config.use_static_cuda_launcher = False
+        optimizer_step = torch.compile(
+            optimizer.step,
+            mode="default",
+            fullgraph=False,
+            dynamic=False,
+        )
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
         lr_lambda=lambda step: lr_multiplier(
@@ -352,14 +516,20 @@ def main() -> int:
     started_at = time.time()
     model.train()
     while global_step < args.max_steps:
+        torch.cuda.synchronize(args.device)
+        iteration_started_at = time.time()
+        iteration_started = time.perf_counter()
         optimizer.zero_grad(set_to_none=True)
         accumulated = {"total": 0.0, "backbone": 0.0, "depth_decoder": 0.0}
         for _ in range(args.gradient_accumulation):
             path = train_paths[
                 example_index(micro_step, len(train_paths), seed=args.seed)
             ]
+            example = bucket_example_sequence(
+                move_example(path, args.device), args.sequence_length_bucket
+            )
             outputs = model(
-                **move_example(path, args.device), use_cache=False, return_dict=True
+                **example, use_cache=False, return_dict=True
             )
             losses = loss_receipt(outputs)
             for name, value in losses.items():
@@ -389,8 +559,10 @@ def main() -> int:
         )
         if not math.isfinite(gradient_norm):
             raise RuntimeError(f"non-finite gradient norm at step {global_step + 1}")
-        optimizer.step()
+        optimizer_step()
         scheduler.step()
+        torch.cuda.synchronize(args.device)
+        iteration_seconds = time.perf_counter() - iteration_started
         global_step += 1
         row: dict[str, Any] = {
             "step": global_step,
@@ -398,6 +570,12 @@ def main() -> int:
             "learning_rate": float(scheduler.get_last_lr()[0]),
             "gradient_norm_before_clip": gradient_norm,
             "training_loss": accumulated,
+            "performance": {
+                "started_at_unix": iteration_started_at,
+                "finished_at_unix": time.time(),
+                "seconds": iteration_seconds,
+                "iterations_per_second": 1.0 / iteration_seconds,
+            },
         }
 
         should_save = (
@@ -438,6 +616,7 @@ def main() -> int:
                     "python": sys.version,
                     "torch": torch.__version__,
                     "device": torch.cuda.get_device_name(args.device),
+                    "compiled_region_count": compiled_region_count,
                 },
             }
             checkpoint = save_checkpoint(

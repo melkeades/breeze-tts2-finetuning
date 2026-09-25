@@ -17,16 +17,16 @@ Before building a release:
 
 ## LoRA bundle
 
-```bash
-python -m training.release_bundle lora \
-  --adapter /runs/lora/checkpoint-step-000500/adapter.safetensors \
-  --adapter-sha256 <selected-checkpoint-adapter-sha256> \
-  --base-model-root /models/Breeze-TTS-2 \
-  --base-revision <exact-base-revision> \
-  --model-license /agreements/Breeze-TTS-2-LICENSE \
-  --card release/lora/README.md \
-  --provenance release/lora/PROVENANCE.json \
-  --output /releases/sg-narration-lora-r8
+```powershell
+uv run python -m training.release_bundle lora `
+  --adapter 'D:\runs\lora\checkpoint-step-000500\adapter.safetensors' `
+  --adapter-sha256 '<selected-checkpoint-adapter-sha256>' `
+  --base-model-root 'D:\models\Breeze-TTS-2' `
+  --base-revision '<exact-base-revision>' `
+  --model-license 'D:\agreements\Breeze-TTS-2-LICENSE' `
+  --card 'release\lora\README.md' `
+  --provenance 'release\lora\PROVENANCE.json' `
+  --output 'D:\releases\sg-narration-lora-r8'
 ```
 
 The builder hashes the base config, weight index, and every referenced base
@@ -39,14 +39,14 @@ The source directory must contain a verified `model-role.json` plus the bundled
 audio tokenizer. Training-state files may remain beside them because the builder
 copies only the model-role allowlist and the exact audio-tokenizer allowlist.
 
-```bash
-python -m training.release_bundle full-sft \
-  --source /runs/full-sft/checkpoint-step-000750 \
-  --base-revision <exact-base-revision> \
-  --model-license /agreements/Breeze-TTS-2-LICENSE \
-  --card release/full-sft/README.md \
-  --provenance release/full-sft/PROVENANCE.json \
-  --output /releases/sg-narration-full-sft
+```powershell
+uv run python -m training.release_bundle full-sft `
+  --source 'D:\runs\full-sft\checkpoint-step-000750' `
+  --base-revision '<exact-base-revision>' `
+  --model-license 'D:\agreements\Breeze-TTS-2-LICENSE' `
+  --card 'release\full-sft\README.md' `
+  --provenance 'release\full-sft\PROVENANCE.json' `
+  --output 'D:\releases\sg-narration-full-sft'
 ```
 
 ## Private staging and clean-room verification
@@ -70,10 +70,10 @@ copies that were already downloaded.
 If a model card must change after a bundle is built but before release, refresh
 it without rebuilding the weights:
 
-```bash
-python -m training.release_bundle refresh-card \
-  --bundle /releases/sg-narration-lora-r8 \
-  --card release/lora/README.md
+```powershell
+uv run python -m training.release_bundle refresh-card `
+  --bundle 'D:\releases\sg-narration-lora-r8' `
+  --card 'release\lora\README.md'
 ```
 
 This command first verifies the current card against `SHA256SUMS`, replaces it
