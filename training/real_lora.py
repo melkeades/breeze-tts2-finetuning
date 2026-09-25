@@ -207,7 +207,7 @@ def save_checkpoint(
 def run_configuration(
     args: argparse.Namespace, cache_receipt: dict[str, Any]
 ) -> dict[str, Any]:
-    return {
+    configuration = {
         "variant": VARIANT,
         "rank": args.rank,
         "alpha": args.alpha,
@@ -220,14 +220,17 @@ def run_configuration(
         "validation_examples": args.validation_examples,
         "seed": args.seed,
         "max_gradient_norm": args.max_gradient_norm,
-        "attention_implementation": args.attention_implementation,
-        "gradient_checkpointing": args.gradient_checkpointing,
         "cache_receipt_sha256": sha256_file(args.cache_root / "cache-receipt.json"),
         "train_manifest_sha256": cache_receipt["source"]["train_manifest_sha256"],
         "validation_manifest_sha256": cache_receipt["source"][
             "validation_manifest_sha256"
         ],
     }
+    if args.attention_implementation != "eager":
+        configuration["attention_implementation"] = args.attention_implementation
+    if not args.gradient_checkpointing:
+        configuration["gradient_checkpointing"] = False
+    return configuration
 
 
 def main() -> int:
